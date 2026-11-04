@@ -1,0 +1,20 @@
+{
+  "track": true,
+  "$schema": "https://benjibenji20.dev/schemas/portfolio.v1.json",
+  "requireHumanApproval": false,
+  "note": "Focus on high-level architecture and keep explanations clear",
+  "ignoreDirectory": [
+    "/public/assets/",
+    "/docs/"
+  ],
+  "projectTitle": "Incident Hound",
+  "projectSlug": "incident-hound",
+  "category": "Backend Systems & Observability",
+
+  "primaryBranch": "main",
+  "mediaPreferences": {
+    "captureScreenshots": true,
+    "generateArchitectureDiagrams": true
+  },
+  "customAudience": "Technical Recruiters"
+}
