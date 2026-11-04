@@ -1,5 +1,5 @@
 {
-  "track": false,
+  "track": true,
   "$schema": "https://benjibenji20.dev/schemas/portfolio.v1.json",
   "requireHumanApproval": false,
   "note": "Focus on high-level architecture and keep explanations clear",
