@@ -2,10 +2,10 @@
   "track": true,
   "$schema": "https://benjibenji20.dev/schemas/portfolio.v1.json",
   "requireHumanApproval": true,
-  "note": "This project is my personal CLI File Organizer tool",
+  "note": "This project is my personal CLI YouTube Video Downloader tool using Python Requests packge.",
   "ignoreDirectory": [],
-  "projectTitle": "CLI File Organizer",
-  "projectSlug": "cli-file-organizer",
+  "projectTitle": "CLI YouTube Video Downloader",
+  "projectSlug": "cli-yt-video-downloader",
   "category": "Automation",
 
   "primaryBranch": "main",
