@@ -3,11 +3,7 @@
   "$schema": "https://benjibenji20.dev/schemas/portfolio.v1.json",
   "requireHumanApproval": false,
   "note": "Focus on high-level architecture and keep explanations clear",
-  "ignoreDirectory": [
-    "task_manager/",
-    "/public/assets/",
-    "/docs/"
-  ],
+  "ignoreDirectory": [],
   "projectTitle": "Python CLI Automations",
   "projectSlug": "python-cli-automations",
   "category": "Automation",
