@@ -8,9 +8,9 @@
     "/public/assets/",
     "/docs/"
   ],
-  "projectTitle": "Incident Hound",
-  "projectSlug": "incident-hound",
-  "category": "Backend Systems & Observability",
+  "projectTitle": "Python CLI Automations",
+  "projectSlug": "python-cli-automations",
+  "category": "Automation",
 
   "primaryBranch": "main",
   "mediaPreferences": {
