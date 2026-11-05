@@ -46,3 +46,11 @@ class StreamDownloader:
                     sys.stdout.flush()
 
             sys.stdout.write("\n")
+
+    @staticmethod
+    def delete_file(file_path: str) -> bool:
+        """Removes the target file from disk if it exists."""
+        if os.path.isfile(file_path):
+            os.remove(file_path)
+            return True
+        return False

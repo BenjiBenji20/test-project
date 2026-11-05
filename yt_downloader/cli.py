@@ -9,7 +9,7 @@ from utils import extract_video_id, sanitize_filename
 def main():
     parser = argparse.ArgumentParser(
         prog="yt-download",
-        description="CLI tool to download YouTube videos using requests.",
+        description="CLI tool to download or delete YouTube videos using requests.",
     )
     parser.add_argument(
         "url",
@@ -21,7 +21,13 @@ def main():
         "--output-dir",
         type=str,
         default=".",
-        help="Directory to save downloaded files (default: current directory)",
+        help="Directory where video files are saved or looked up (default: current directory)",
+    )
+    parser.add_argument(
+        "-d",
+        "--delete",
+        action="store_true",
+        help="Delete the downloaded video file corresponding to the URL instead of downloading",
     )
 
     args = parser.parse_args()
@@ -33,26 +39,35 @@ def main():
         extractor = YouTubeExtractor()
         downloader = StreamDownloader()
 
-        print("Fetching stream metadata...")
+        print("Fetching video metadata...")
         data = extractor.get_video_info(video_id)
 
         title = data.get("videoDetails", {}).get("title", f"video_{video_id}")
         clean_title = sanitize_filename(title)
-        print(f"Title           : {title}")
+        filename = f"{clean_title}.mp4"
+        target_path = os.path.join(args.output_dir, filename)
 
+        # Deletion branch
+        if args.delete:
+            if downloader.delete_file(target_path):
+                print(f"Successfully deleted: {target_path}")
+            else:
+                print(f"File not found: {target_path}", file=sys.stderr)
+                sys.exit(1)
+            return
+
+        # Download branch
+        print(f"Title           : {title}")
         best_stream = extractor.select_best_progressive_stream(data)
         quality = best_stream.get("qualityLabel", "Unknown")
         print(f"Selected Quality: {quality}")
+        print(f"Saving to       : {target_path}")
 
-        filename = f"{clean_title}.mp4"
-        dest_path = os.path.join(args.output_dir, filename)
-        print(f"Saving to       : {dest_path}")
-
-        downloader.download(best_stream["url"], dest_path)
+        downloader.download(best_stream["url"], target_path)
         print("Download finished.")
 
     except KeyboardInterrupt:
-        print("\nDownload canceled by user.")
+        print("\nOperation canceled by user.")
         sys.exit(1)
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
