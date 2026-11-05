@@ -2,11 +2,11 @@
   "track": true,
   "$schema": "https://benjibenji20.dev/schemas/portfolio.v1.json",
   "requireHumanApproval": false,
-  "note": "Focus on high-level architecture and keep explanations clear",
+  "note": "This project is my personal CLI task manager tool",
   "ignoreDirectory": [],
-  "projectTitle": "Incident Hound",
-  "projectSlug": "incident-hound",
-  "category": "Backend Systems & Observability",
+  "projectTitle": "CLI Task Manager",
+  "projectSlug": "cli-task-manager",
+  "category": "Automation",
 
   "primaryBranch": "main",
   "mediaPreferences": {
