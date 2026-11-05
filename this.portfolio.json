@@ -4,9 +4,9 @@
   "requireHumanApproval": false,
   "note": "Focus on high-level architecture and keep explanations clear",
   "ignoreDirectory": [],
-  "projectTitle": "Python CLI Automations",
-  "projectSlug": "python-cli-automations",
-  "category": "Automation",
+  "projectTitle": "Incident Hound",
+  "projectSlug": "incident-hound",
+  "category": "Backend Systems & Observability",
 
   "primaryBranch": "main",
   "mediaPreferences": {
