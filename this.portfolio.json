@@ -2,10 +2,10 @@
   "track": true,
   "$schema": "https://benjibenji20.dev/schemas/portfolio.v1.json",
   "requireHumanApproval": true,
-  "note": "This project is my personal CLI YouTube Video Downloader tool using Python Requests packge.",
+  "note": "This project is my personal CLI Dead Link Checker tool using Python Requests packge.",
   "ignoreDirectory": [],
-  "projectTitle": "CLI YouTube Video Downloader",
-  "projectSlug": "cli-yt-video-downloader",
+  "projectTitle": "Dead Link Checkerr",
+  "projectSlug": "cli-dead-link-checkr",
   "category": "Automation",
 
   "primaryBranch": "main",
@@ -13,5 +13,6 @@
     "captureScreenshots": true,
     "generateArchitectureDiagrams": true
   },
-  "customAudience": "Technical Recruiters"
+  "customAudience": "Technical Recruiters",
+  "userMessage": "Please write a professional project description not just following the note above. Please create a portable text entry in Projects content."
 }
