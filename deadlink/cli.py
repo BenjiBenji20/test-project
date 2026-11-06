@@ -24,6 +24,12 @@ def main():
         help="Only inspect links matching the target domain",
     )
     parser.add_argument(
+        "-b",
+        "--broken-only",
+        action="store_true",
+        help="Only display dead or failed links in the terminal output",
+    )
+    parser.add_argument(
         "-o",
         "--output",
         type=str,
@@ -57,7 +63,8 @@ def main():
 
         status_str = str(data["status"]) if data["status"] else "ERR"
         if data["ok"]:
-            print(f"[{status_str}] OK  : {data['url']}")
+            if not args.broken_only:
+                print(f"[{status_str}] OK  : {data['url']}")
         else:
             broken_count += 1
             reason = f" ({data['error']})" if data["error"] else ""
@@ -69,7 +76,7 @@ def main():
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=2)
-        print(f"Saved report to: {args.output}")
+        print(f"Saved full report to: {args.output}")
 
     if broken_count > 0:
         sys.exit(1)
