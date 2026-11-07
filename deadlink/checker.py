@@ -1,6 +1,8 @@
 from html.parser import HTMLParser
+import os
+import re
 import time
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse
 import requests
 
@@ -19,6 +21,75 @@ class HrefParser(HTMLParser):
                     self.links.add(val.strip())
 
 
+class AIAuditor:
+    """Diagnoses broken endpoints using an OpenAI-compatible LLM endpoint."""
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        api_base: str = "https://api.openai.com/v1",
+        model: str = "gpt-4o-mini",
+    ):
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        self.api_base = api_base.rstrip("/")
+        self.model = model
+        self.session = requests.Session()
+
+    def is_configured(self) -> bool:
+        return bool(self.api_key)
+
+    def diagnose_failure(
+        self, url: str, status: Optional[int], error: Optional[str], raw_body: str
+    ) -> str:
+        """Sends failure context and response body to the LLM for diagnosis."""
+        if not self.is_configured():
+            return "Skipped: OPENAI_API_KEY environment variable or --api-key not set."
+
+        clean_snippet = re.sub(r"<[^>]+>", " ", raw_body[:2000]).strip()
+        clean_snippet = re.sub(r"\s+", " ", clean_snippet)
+
+        prompt = (
+            f"Analyze this broken link from a website scan.\n"
+            f"URL: {url}\n"
+            f"HTTP Status: {status or 'Connection Failed'}\n"
+            f"Network Error: {error or 'None'}\n"
+            f"Page Snippet/Body: {clean_snippet or 'Empty response'}\n\n"
+            f"Provide a 2-sentence diagnosis:\n"
+            f"1. Most probable root cause (e.g. paywall, expired route, DNS misconfiguration).\n"
+            f"2. Suggested webmaster remediation or redirect fix."
+        )
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a web infrastructure and SEO reliability engineer.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            "max_tokens": 120,
+            "temperature": 0.2,
+        }
+
+        try:
+            res = self.session.post(
+                f"{self.api_base}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=12.0,
+            )
+            res.raise_for_status()
+            data = res.json()
+            return data["choices"][0]["message"]["content"].strip()
+        except requests.RequestException as exc:
+            return f"AI audit failed: {exc}"
+
+
 class LinkScanner:
     def __init__(self, base_url: str, timeout: float = 5.0):
         self.base_url = (
@@ -28,7 +99,7 @@ class LinkScanner:
         )
         self.timeout = timeout
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": "LinkScannerCLI/1.0"})
+        self.session.headers.update({"User-Agent": "LinkScannerCLI/2.0"})
 
     def extract_links(self) -> Set[str]:
         """Fetches the source page and resolves all absolute URLs."""
@@ -47,21 +118,23 @@ class LinkScanner:
         return resolved_links
 
     def check_url(self, url: str, retries: int = 0) -> Dict[str, Any]:
-        """Pings a target URL with optional retries on failure."""
+        """Pings a target URL, captures latency, and captures response content on failure."""
         attempts = 0
         max_attempts = 1 + max(0, retries)
         last_error = None
         latency_ms = 0.0
+        raw_body = ""
 
         while attempts < max_attempts:
             attempts += 1
             start_time = time.perf_counter()
             try:
                 res = self.session.head(url, timeout=self.timeout, allow_redirects=True)
-                if res.status_code in (403, 405):
+                if res.status_code in (403, 404, 405, 500, 502, 503):
                     res = self.session.get(
-                        url, timeout=self.timeout, stream=True, allow_redirects=True
+                        url, timeout=self.timeout, stream=False, allow_redirects=True
                     )
+                    raw_body = res.text[:2048]
 
                 latency_ms = round((time.perf_counter() - start_time) * 1000, 1)
                 return {
@@ -70,6 +143,7 @@ class LinkScanner:
                     "latency_ms": latency_ms,
                     "ok": 200 <= res.status_code < 400,
                     "error": None,
+                    "raw_body": raw_body,
                 }
             except requests.RequestException as err:
                 latency_ms = round((time.perf_counter() - start_time) * 1000, 1)
@@ -81,4 +155,6 @@ class LinkScanner:
             "latency_ms": latency_ms,
             "ok": False,
             "error": last_error,
+            "raw_body": raw_body,
         }
+        
