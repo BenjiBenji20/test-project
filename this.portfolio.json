@@ -14,5 +14,6 @@
     "generateArchitectureDiagrams": true
   },
   "customAudience": "Technical Recruiters",
-  "userMessage": "Please write a professional project description not just following the note above. Please create a portable text entry in Projects content."
+  "userMessage": "Please write a professional project description not just following the note above. Please create a portable text entry in Projects content. Please add more details to the project content. Always create worklog entry.",
+  "createArticleEntry": true
 }
