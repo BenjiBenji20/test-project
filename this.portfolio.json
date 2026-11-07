@@ -1,19 +1,25 @@
 {
-  "track": true,
   "$schema": "https://benjibenji20.dev/schemas/portfolio.v1.json",
+  "track": true,
   "requireHumanApproval": true,
-  "note": "This project is my personal CLI Dead Link Checker tool using Python Requests packge.",
-  "ignoreDirectory": [],
+  "mediaPreferences": {
+    "captureScreenshots": false,
+    "generateArchitectureDiagrams": false
+  },
+  "primaryBranch": "main",
   "projectTitle": "Dead Link Checkerr",
   "projectSlug": "cli-dead-link-checkr",
   "category": "Automation",
+  "liveUrl": "https://example-deadlink-tool.benjibenji20.dev",
+  "ignoreDirectory": [
+    "tests/fixtures",
+    "docs/legacy",
+    "dist"
+  ],
+  "projectOverview": "A high-performance CLI utility written in Python using Requests and HTMLParser to crawl websites, harvest anchor tags, and isolate unreachable HTTP endpoints.",
+  "developerDirective": "Highlight the new terminal filtering flag (-b/--broken-only) and suppress 200 OK outputs.",
+  "targetAudience": "Technical Peers & Recruiters",
 
-  "primaryBranch": "main",
-  "mediaPreferences": {
-    "captureScreenshots": true,
-    "generateArchitectureDiagrams": true
-  },
-  "customAudience": "Technical Recruiters",
-  "userMessage": "Please write a professional project description not just following the note above. Please create a portable text entry in Projects content. Please add more details to the project content. Always create worklog entry.",
-  "createArticleEntry": true
+  "writingTone": "deep-dive engineering with concise code snippets but make it sounds like you are talking to a beginner.",
+  "langauge": "TagLish"
 }
