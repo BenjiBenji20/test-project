@@ -1,4 +1,5 @@
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import sys
 from urllib.parse import urlparse
@@ -17,6 +18,13 @@ def main():
         type=float,
         default=5.0,
         help="Timeout in seconds for checking individual links (default: 5.0)",
+    )
+    parser.add_argument(
+        "-w",
+        "--workers",
+        type=int,
+        default=5,
+        help="Number of concurrent worker threads to check links in parallel (default: 5)",
     )
     parser.add_argument(
         "--internal-only",
@@ -52,28 +60,33 @@ def main():
     if args.internal_only:
         links = {u for u in links if urlparse(u).netloc == target_domain}
 
-    print(f"Found {len(links)} link(s). Verifying endpoints...\n")
+    print(f"Found {len(links)} link(s). Verifying endpoints with {args.workers} worker(s)...\n")
 
     results = []
     broken_count = 0
 
-    for link in sorted(links):
-        data = scanner.check_url(link)
-        results.append(data)
+    with ThreadPoolExecutor(max_workers=args.workers) as executor:
+        future_to_url = {executor.submit(scanner.check_url, link): link for link in links}
 
-        status_str = str(data["status"]) if data["status"] else "ERR"
-        if data["ok"]:
-            if not args.broken_only:
-                print(f"[{status_str}] OK  : {data['url']}")
-        else:
-            broken_count += 1
-            reason = f" ({data['error']})" if data["error"] else ""
-            print(f"[{status_str}] FAIL: {data['url']}{reason}")
+        for future in as_completed(future_to_url):
+            data = future.result()
+            results.append(data)
+
+            status_str = str(data["status"]) if data["status"] else "ERR"
+            if data["ok"]:
+                if not args.broken_only:
+                    print(f"[{status_str}] OK  : {data['url']}")
+            else:
+                broken_count += 1
+                reason = f" ({data['error']})" if data["error"] else ""
+                print(f"[{status_str}] FAIL: {data['url']}{reason}")
 
     alive_count = len(results) - broken_count
     print(f"\nDone: {alive_count} accessible, {broken_count} broken.")
 
     if args.output:
+        # Sort by URL before saving so exported report is stable
+        results.sort(key=lambda item: item["url"])
         with open(args.output, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=2)
         print(f"Saved full report to: {args.output}")
