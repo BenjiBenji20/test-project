@@ -21,6 +21,43 @@ class HrefParser(HTMLParser):
                     self.links.add(val.strip())
 
 
+class WaybackRecovery:
+    """Queries the Internet Archive to find working historical snapshots for broken URLs."""
+
+    API_URL = "https://archive.org/wayback/available"
+
+    def __init__(self, session: Optional[requests.Session] = None):
+        self.session = session or requests.Session()
+        self.session.headers.update({"User-Agent": "WaybackRecoveryCLI/1.0"})
+
+    def find_snapshot(self, target_url: str) -> Optional[Dict[str, str]]:
+        """Checks for the closest available snapshot of a broken URL."""
+        try:
+            res = self.session.get(
+                self.API_URL,
+                params={"url": target_url},
+                timeout=6.0,
+            )
+            if res.status_code == 200:
+                data = res.json()
+                closest = data.get("archived_snapshots", {}).get("closest")
+                if closest and closest.get("available"):
+                    raw_time = closest.get("timestamp", "")
+                    # Format timestamp YYYYMMDDhhmmss -> YYYY-MM-DD
+                    formatted_date = (
+                        f"{raw_time[:4]}-{raw_time[4:6]}-{raw_time[6:8]}"
+                        if len(raw_time) >= 8
+                        else raw_time
+                    )
+                    return {
+                        "archive_url": closest.get("url"),
+                        "timestamp": formatted_date,
+                    }
+        except requests.RequestException:
+            pass
+        return None
+
+
 class AIAuditor:
     """Diagnoses broken endpoints using an OpenAI-compatible LLM endpoint."""
 
@@ -39,23 +76,35 @@ class AIAuditor:
         return bool(self.api_key)
 
     def diagnose_failure(
-        self, url: str, status: Optional[int], error: Optional[str], raw_body: str
+        self,
+        url: str,
+        status: Optional[int],
+        error: Optional[str],
+        raw_body: str,
+        archive_info: Optional[Dict[str, str]] = None,
     ) -> str:
-        """Sends failure context and response body to the LLM for diagnosis."""
+        """Sends failure context, body snippet, and archive availability to the LLM."""
         if not self.is_configured():
             return "Skipped: OPENAI_API_KEY environment variable or --api-key not set."
 
         clean_snippet = re.sub(r"<[^>]+>", " ", raw_body[:2000]).strip()
         clean_snippet = re.sub(r"\s+", " ", clean_snippet)
 
+        archive_note = (
+            f"Wayback snapshot found: {archive_info['archive_url']} ({archive_info['timestamp']})"
+            if archive_info
+            else "No Wayback snapshot found."
+        )
+
         prompt = (
             f"Analyze this broken link from a website scan.\n"
             f"URL: {url}\n"
             f"HTTP Status: {status or 'Connection Failed'}\n"
             f"Network Error: {error or 'None'}\n"
+            f"Archive Status: {archive_note}\n"
             f"Page Snippet/Body: {clean_snippet or 'Empty response'}\n\n"
             f"Provide a 2-sentence diagnosis:\n"
-            f"1. Most probable root cause (e.g. paywall, expired route, DNS misconfiguration).\n"
+            f"1. Most probable root cause.\n"
             f"2. Suggested webmaster remediation or redirect fix."
         )
 
@@ -118,7 +167,7 @@ class LinkScanner:
         return resolved_links
 
     def check_url(self, url: str, retries: int = 0) -> Dict[str, Any]:
-        """Pings a target URL, captures latency, and captures response content on failure."""
+        """Pings a target URL, records latency, and captures body data if unreachable."""
         attempts = 0
         max_attempts = 1 + max(0, retries)
         last_error = None
@@ -157,4 +206,3 @@ class LinkScanner:
             "error": last_error,
             "raw_body": raw_body,
         }
-        
