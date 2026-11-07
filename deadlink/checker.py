@@ -1,4 +1,5 @@
 from html.parser import HTMLParser
+import time
 from typing import Any, Dict, List, Set, Tuple
 from urllib.parse import urljoin, urlparse
 import requests
@@ -46,25 +47,29 @@ class LinkScanner:
         return resolved_links
 
     def check_url(self, url: str) -> Dict[str, Any]:
-        """Pings a target URL using HEAD, falling back to GET if HEAD is rejected."""
+        """Pings a target URL and records response latency in milliseconds."""
+        start_time = time.perf_counter()
         try:
             res = self.session.head(url, timeout=self.timeout, allow_redirects=True)
-            # Some servers block or return 405 on HEAD requests
             if res.status_code in (403, 405):
                 res = self.session.get(
                     url, timeout=self.timeout, stream=True, allow_redirects=True
                 )
 
+            latency_ms = round((time.perf_counter() - start_time) * 1000, 1)
             return {
                 "url": url,
                 "status": res.status_code,
+                "latency_ms": latency_ms,
                 "ok": 200 <= res.status_code < 400,
                 "error": None,
             }
         except requests.RequestException as err:
+            latency_ms = round((time.perf_counter() - start_time) * 1000, 1)
             return {
                 "url": url,
                 "status": None,
+                "latency_ms": latency_ms,
                 "ok": False,
                 "error": type(err).__name__,
             }
