@@ -3,13 +3,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import sys
 from urllib.parse import urlparse
-from checker import AIAuditor, LinkScanner
+from checker import AIAuditor, LinkScanner, WaybackRecovery
 
 
 def main():
     parser = argparse.ArgumentParser(
         prog="deadlink",
-        description="CLI tool to detect dead links and generate AI-driven root-cause audits.",
+        description="CLI tool to detect dead links, find archive snapshots, and run AI root-cause audits.",
     )
     parser.add_argument("url", type=str, help="Target URL to inspect (e.g., example.com)")
     parser.add_argument(
@@ -52,6 +52,11 @@ def main():
         help="Only display dead or failed links in stdout",
     )
     parser.add_argument(
+        "--wayback",
+        action="store_true",
+        help="Query the Internet Archive to find working replacement snapshots for broken links",
+    )
+    parser.add_argument(
         "-a",
         "--ai-audit",
         action="store_true",
@@ -67,14 +72,14 @@ def main():
         "--api-base",
         type=str,
         default="https://api.openai.com/v1",
-        help="OpenAI-compatible API base URL (works with Ollama, Groq, OpenRouter)",
+        help="OpenAI-compatible API base URL (e.g., Ollama, Groq, OpenRouter)",
     )
     parser.add_argument(
         "-o",
         "--output",
         type=str,
         metavar="FILE",
-        help="Export results and AI audits to a JSON file",
+        help="Export full results and diagnostics to a JSON file",
     )
 
     args = parser.parse_args()
@@ -97,11 +102,13 @@ def main():
         sorted_links = sorted_links[:args.limit]
 
     print(
-        f"Verifying {len(sorted_links)} link(s) with {args.workers} worker(s) "
-        f"(AI Audit: {'Enabled' if args.ai_audit else 'Disabled'})...\n"
+        f"Scanning {len(sorted_links)} link(s) with {args.workers} worker(s) "
+        f"[Wayback: {'ON' if args.wayback else 'OFF'} | AI Audit: {'ON' if args.ai_audit else 'OFF'}]...\n"
     )
 
     ai_auditor = AIAuditor(api_key=args.api_key, api_base=args.api_base)
+    wayback_recovery = WaybackRecovery()
+
     results = []
     broken_count = 0
 
@@ -126,22 +133,37 @@ def main():
                 reason = f" ({data['error']})" if data["error"] else ""
                 print(f"[{status_str}] [{latency_str}] FAIL: {data['url']}{reason}")
 
+                archive_info = None
+                if args.wayback:
+                    print("       📦 Searching Internet Archive for snapshots...")
+                    archive_info = wayback_recovery.find_snapshot(data["url"])
+                    data["wayback_snapshot"] = archive_info
+                    if archive_info:
+                        print(
+                            f"       ✨ Archive Found ({archive_info['timestamp']}): {archive_info['archive_url']}"
+                        )
+                    else:
+                        print("       ❌ No archived snapshot exists on Wayback Machine.")
+
                 if args.ai_audit:
-                    print("       🤖 Analyzing root cause...")
+                    print("       🤖 Running AI diagnosis...")
                     diagnosis = ai_auditor.diagnose_failure(
                         url=data["url"],
                         status=data["status"],
                         error=data["error"],
                         raw_body=data["raw_body"],
+                        archive_info=archive_info,
                     )
                     data["ai_diagnosis"] = diagnosis
-                    print(f"       💡 AI Report: {diagnosis}\n")
+                    print(f"       💡 AI Report: {diagnosis}")
+
+                if args.wayback or args.ai_audit:
+                    print()
 
     alive_count = len(results) - broken_count
-    print(f"\nDone: {alive_count} accessible, {broken_count} broken.")
+    print(f"Done: {alive_count} accessible, {broken_count} broken.")
 
     if args.output:
-        # Strip internal raw body buffer prior to writing output
         for item in results:
             item.pop("raw_body", None)
         results.sort(key=lambda item: item["url"])
