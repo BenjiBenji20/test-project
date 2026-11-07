@@ -17,9 +17,8 @@
     "dist"
   ],
   "projectOverview": "A high-performance CLI utility written in Python using Requests and HTMLParser to crawl websites, harvest anchor tags, and isolate unreachable HTTP endpoints.",
-  "developerDirective": "Highlight the new terminal filtering flag (-b/--broken-only) and suppress 200 OK outputs.",
-  "targetAudience": "Technical Peers & Recruiters",
+  "targetAudience": "Pinoy recruiters",
 
   "writingTone": "deep-dive engineering with concise code snippets but make it sounds like you are talking to a beginner.",
-  "langauge": "TagLish"
+  "langauge": "100% tagalog"
 }

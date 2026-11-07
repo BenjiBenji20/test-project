@@ -46,30 +46,39 @@ class LinkScanner:
 
         return resolved_links
 
-    def check_url(self, url: str) -> Dict[str, Any]:
-        """Pings a target URL and records response latency in milliseconds."""
-        start_time = time.perf_counter()
-        try:
-            res = self.session.head(url, timeout=self.timeout, allow_redirects=True)
-            if res.status_code in (403, 405):
-                res = self.session.get(
-                    url, timeout=self.timeout, stream=True, allow_redirects=True
-                )
+    def check_url(self, url: str, retries: int = 0) -> Dict[str, Any]:
+        """Pings a target URL with optional retries on failure."""
+        attempts = 0
+        max_attempts = 1 + max(0, retries)
+        last_error = None
+        latency_ms = 0.0
 
-            latency_ms = round((time.perf_counter() - start_time) * 1000, 1)
-            return {
-                "url": url,
-                "status": res.status_code,
-                "latency_ms": latency_ms,
-                "ok": 200 <= res.status_code < 400,
-                "error": None,
-            }
-        except requests.RequestException as err:
-            latency_ms = round((time.perf_counter() - start_time) * 1000, 1)
-            return {
-                "url": url,
-                "status": None,
-                "latency_ms": latency_ms,
-                "ok": False,
-                "error": type(err).__name__,
-            }
+        while attempts < max_attempts:
+            attempts += 1
+            start_time = time.perf_counter()
+            try:
+                res = self.session.head(url, timeout=self.timeout, allow_redirects=True)
+                if res.status_code in (403, 405):
+                    res = self.session.get(
+                        url, timeout=self.timeout, stream=True, allow_redirects=True
+                    )
+
+                latency_ms = round((time.perf_counter() - start_time) * 1000, 1)
+                return {
+                    "url": url,
+                    "status": res.status_code,
+                    "latency_ms": latency_ms,
+                    "ok": 200 <= res.status_code < 400,
+                    "error": None,
+                }
+            except requests.RequestException as err:
+                latency_ms = round((time.perf_counter() - start_time) * 1000, 1)
+                last_error = type(err).__name__
+
+        return {
+            "url": url,
+            "status": None,
+            "latency_ms": latency_ms,
+            "ok": False,
+            "error": last_error,
+        }
