@@ -27,6 +27,13 @@ def main():
         help="Number of concurrent worker threads to check links in parallel (default: 5)",
     )
     parser.add_argument(
+        "-l",
+        "--limit",
+        type=int,
+        default=None,
+        help="Maximum number of links to check (e.g., -l 20)",
+    )
+    parser.add_argument(
         "--internal-only",
         action="store_true",
         help="Only inspect links matching the target domain",
@@ -60,13 +67,18 @@ def main():
     if args.internal_only:
         links = {u for u in links if urlparse(u).netloc == target_domain}
 
-    print(f"Found {len(links)} link(s). Verifying endpoints with {args.workers} worker(s)...\n")
+    # Sort deterministically and apply limit if requested
+    sorted_links = sorted(links)
+    if args.limit and args.limit > 0:
+        sorted_links = sorted_links[:args.limit]
+
+    print(f"Verifying {len(sorted_links)} link(s) with {args.workers} worker(s)...\n")
 
     results = []
     broken_count = 0
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        future_to_url = {executor.submit(scanner.check_url, link): link for link in links}
+        future_to_url = {executor.submit(scanner.check_url, link): link for link in sorted_links}
 
         for future in as_completed(future_to_url):
             data = future.result()
@@ -85,7 +97,6 @@ def main():
     print(f"\nDone: {alive_count} accessible, {broken_count} broken.")
 
     if args.output:
-        # Sort by URL before saving so exported report is stable
         results.sort(key=lambda item: item["url"])
         with open(args.output, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=2)
