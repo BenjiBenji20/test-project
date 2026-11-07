@@ -4,21 +4,20 @@
   "requireHumanApproval": true,
   "mediaPreferences": {
     "captureScreenshots": false,
-    "generateArchitectureDiagrams": false
+    "generateArchitectureDiagrams": true
   },
   "primaryBranch": "main",
   "projectTitle": "Dead Link Checkerr",
   "projectSlug": "cli-dead-link-checkr",
   "category": "Automation",
-  "liveUrl": "https://example-deadlink-tool.benjibenji20.dev",
   "ignoreDirectory": [
     "tests/fixtures",
     "docs/legacy",
     "dist"
   ],
+  "generateArticle": true,
   "projectOverview": "A high-performance CLI utility written in Python using Requests and HTMLParser to crawl websites, harvest anchor tags, and isolate unreachable HTTP endpoints.",
   "targetAudience": "Pinoy recruiters",
 
   "writingTone": "deep-dive engineering with concise code snippets but make it sounds like you are talking to a beginner.",
-  "langauge": "100% tagalog"
 }
