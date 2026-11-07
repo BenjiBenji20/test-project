@@ -3,13 +3,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import sys
 from urllib.parse import urlparse
-from checker import LinkScanner
+from checker import AIAuditor, LinkScanner
 
 
 def main():
     parser = argparse.ArgumentParser(
         prog="deadlink",
-        description="CLI tool to detect broken links and check response times on any web page.",
+        description="CLI tool to detect dead links and generate AI-driven root-cause audits.",
     )
     parser.add_argument("url", type=str, help="Target URL to inspect (e.g., example.com)")
     parser.add_argument(
@@ -24,21 +24,21 @@ def main():
         "--retries",
         type=int,
         default=0,
-        help="Number of retries for failed or timed-out requests (default: 0)",
+        help="Number of retries for failed requests (default: 0)",
     )
     parser.add_argument(
         "-w",
         "--workers",
         type=int,
         default=5,
-        help="Number of concurrent worker threads to check links in parallel (default: 5)",
+        help="Number of concurrent worker threads (default: 5)",
     )
     parser.add_argument(
         "-l",
         "--limit",
         type=int,
         default=None,
-        help="Maximum number of links to check (e.g., -l 20)",
+        help="Maximum number of links to check",
     )
     parser.add_argument(
         "--internal-only",
@@ -49,14 +49,32 @@ def main():
         "-b",
         "--broken-only",
         action="store_true",
-        help="Only display dead or failed links in the terminal output",
+        help="Only display dead or failed links in stdout",
+    )
+    parser.add_argument(
+        "-a",
+        "--ai-audit",
+        action="store_true",
+        help="Enable AI root-cause analysis on broken links",
+    )
+    parser.add_argument(
+        "--api-key",
+        type=str,
+        default=None,
+        help="API key for AI audit (or set OPENAI_API_KEY environment variable)",
+    )
+    parser.add_argument(
+        "--api-base",
+        type=str,
+        default="https://api.openai.com/v1",
+        help="OpenAI-compatible API base URL (works with Ollama, Groq, OpenRouter)",
     )
     parser.add_argument(
         "-o",
         "--output",
         type=str,
         metavar="FILE",
-        help="Export results to a JSON file",
+        help="Export results and AI audits to a JSON file",
     )
 
     args = parser.parse_args()
@@ -80,9 +98,10 @@ def main():
 
     print(
         f"Verifying {len(sorted_links)} link(s) with {args.workers} worker(s) "
-        f"(retries: {args.retries})...\n"
+        f"(AI Audit: {'Enabled' if args.ai_audit else 'Disabled'})...\n"
     )
 
+    ai_auditor = AIAuditor(api_key=args.api_key, api_base=args.api_base)
     results = []
     broken_count = 0
 
@@ -107,10 +126,24 @@ def main():
                 reason = f" ({data['error']})" if data["error"] else ""
                 print(f"[{status_str}] [{latency_str}] FAIL: {data['url']}{reason}")
 
+                if args.ai_audit:
+                    print("       🤖 Analyzing root cause...")
+                    diagnosis = ai_auditor.diagnose_failure(
+                        url=data["url"],
+                        status=data["status"],
+                        error=data["error"],
+                        raw_body=data["raw_body"],
+                    )
+                    data["ai_diagnosis"] = diagnosis
+                    print(f"       💡 AI Report: {diagnosis}\n")
+
     alive_count = len(results) - broken_count
     print(f"\nDone: {alive_count} accessible, {broken_count} broken.")
 
     if args.output:
+        # Strip internal raw body buffer prior to writing output
+        for item in results:
+            item.pop("raw_body", None)
         results.sort(key=lambda item: item["url"])
         with open(args.output, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=2)
