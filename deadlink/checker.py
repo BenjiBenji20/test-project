@@ -1,9 +1,10 @@
+from collections import deque
 from html.parser import HTMLParser
 import os
 import re
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urldefrag, urljoin, urlparse
 import requests
 
 
@@ -81,6 +82,7 @@ class AIAuditor:
         error: Optional[str],
         raw_body: str,
         archive_info: Optional[Dict[str, str]] = None,
+        referrers: Optional[List[str]] = None,
     ) -> str:
         """Sends failure context, body snippet, and archive availability to the LLM."""
         if not self.is_configured():
@@ -94,10 +96,16 @@ class AIAuditor:
             if archive_info
             else "No Wayback snapshot found."
         )
+        referrer_note = (
+            f"Found on page(s): {', '.join(referrers[:3])}"
+            if referrers
+            else "Source page unknown."
+        )
 
         prompt = (
-            f"Analyze this broken link from a website scan.\n"
+            f"Analyze this broken link found during a recursive site crawl.\n"
             f"URL: {url}\n"
+            f"{referrer_note}\n"
             f"HTTP Status: {status or 'Connection Failed'}\n"
             f"Network Error: {error or 'None'}\n"
             f"Archive Status: {archive_note}\n"
@@ -147,12 +155,15 @@ class LinkScanner:
         )
         self.timeout = timeout
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": "LinkScannerCLI/2.0"})
+        self.session.headers.update({"User-Agent": "LinkScannerCLI/3.0"})
+        self.base_domain = urlparse(self.base_url).netloc
 
-    def extract_links(self) -> Set[str]:
-        """Fetches the source page and resolves all absolute URLs."""
-        res = self.session.get(self.base_url, timeout=self.timeout)
-        res.raise_for_status()
+    def extract_links_from_url(self, page_url: str) -> Set[str]:
+        """Fetches a single page and extracts normalized absolute links."""
+        res = self.session.get(page_url, timeout=self.timeout)
+        content_type = res.headers.get("content-type", "").lower()
+        if "text/html" not in content_type:
+            return set()
 
         parser = HrefParser()
         parser.feed(res.text)
@@ -161,12 +172,49 @@ class LinkScanner:
         for raw_link in parser.links:
             if raw_link.startswith(("#", "javascript:", "mailto:", "tel:")):
                 continue
-            resolved_links.add(urljoin(self.base_url, raw_link))
+            full_url = urljoin(page_url, raw_link)
+            clean_url, _ = urldefrag(full_url)
+            resolved_links.add(clean_url)
 
         return resolved_links
 
+    def crawl(
+        self, max_depth: int = 1, max_pages: int = 40
+    ) -> Tuple[Dict[str, List[str]], int]:
+        """Performs a BFS crawl to discover URLs and map each link to its referring page(s)."""
+        queue = deque([(self.base_url, 1)])
+        visited_pages: Set[str] = set()
+        link_referrers: Dict[str, Set[str]] = {}
+
+        while queue and len(visited_pages) < max_pages:
+            current_url, depth = queue.popleft()
+            if current_url in visited_pages:
+                continue
+
+            visited_pages.add(current_url)
+            try:
+                page_links = self.extract_links_from_url(current_url)
+            except Exception:
+                continue
+
+            for link in page_links:
+                if link not in link_referrers:
+                    link_referrers[link] = set()
+                link_referrers[link].add(current_url)
+
+                # Enqueue internal links for deeper exploration if within max_depth limit
+                if depth < max_depth and urlparse(link).netloc == self.base_domain:
+                    if link not in visited_pages:
+                        queue.append((link, depth + 1))
+
+        # Convert set values to sorted lists for deterministic serialization
+        normalized_referrers = {
+            link: sorted(refs) for link, refs in link_referrers.items()
+        }
+        return normalized_referrers, len(visited_pages)
+
     def check_url(self, url: str, retries: int = 0) -> Dict[str, Any]:
-        """Pings a target URL, records latency, and captures body data if unreachable."""
+        """Pings a target URL, records latency, and captures body snippet if unreachable."""
         attempts = 0
         max_attempts = 1 + max(0, retries)
         last_error = None
@@ -208,10 +256,15 @@ class LinkScanner:
 
 
 class HTMLReporter:
-    """Generates a standalone, interactive HTML report with filtering and diagnostic drawers."""
+    """Generates an interactive HTML dashboard with referrer links and diagnostic drawers."""
 
     @staticmethod
-    def generate(results: List[Dict[str, Any]], base_url: str, output_path: str) -> None:
+    def generate(
+        results: List[Dict[str, Any]],
+        base_url: str,
+        output_path: str,
+        pages_crawled: int = 1,
+    ) -> None:
         total = len(results)
         broken = sum(1 for r in results if not r["ok"])
         alive = total - broken
@@ -221,4 +274,170 @@ class HTMLReporter:
         )
 
         rows_html = []
-        for idx, item in enumerate
+        for idx, item in enumerate(results):
+            status_text = str(item["status"]) if item["status"] else "ERR"
+            status_class = "badge-ok" if item["ok"] else "badge-fail"
+            latency = f"{item.get('latency_ms', 0)} ms"
+            url = item["url"]
+
+            details_html = []
+            if item.get("referrers"):
+                refs_li = "".join(
+                    f"<li><a href='{r}' target='_blank' rel='noreferrer'>{r}</a></li>"
+                    for r in item["referrers"]
+                )
+                details_html.append(
+                    f"<p><strong>Referenced on ({len(item['referrers'])} page/s):</strong></p>"
+                    f"<ul class='ref-list'>{refs_li}</ul>"
+                )
+            if item.get("error"):
+                details_html.append(f"<p><strong>Error:</strong> {item['error']}</p>")
+            if item.get("wayback_snapshot"):
+                wb = item["wayback_snapshot"]
+                details_html.append(
+                    f"<p><strong>Wayback Snapshot ({wb.get('timestamp')}):</strong> "
+                    f"<a href='{wb.get('archive_url')}' target='_blank' rel='noreferrer'>"
+                    f"{wb.get('archive_url')}</a></p>"
+                )
+            if item.get("ai_diagnosis"):
+                details_html.append(
+                    f"<div class='ai-box'><strong>🤖 AI Diagnosis:</strong> "
+                    f"<div>{item['ai_diagnosis']}</div></div>"
+                )
+
+            details_block = (
+                f"<div class='drawer' id='drawer-{idx}'>{''.join(details_html)}</div>"
+                if details_html
+                else ""
+            )
+            toggle_btn = (
+                f"<button class='btn-toggle' onclick='toggleDrawer(\"drawer-{idx}\")'>Details</button>"
+                if details_html
+                else "-"
+            )
+
+            filter_tag = "broken" if not item["ok"] else "ok"
+            if item.get("wayback_snapshot"):
+                filter_tag += " archived"
+
+            rows_html.append(
+                f"<tr class='data-row' data-status='{filter_tag}'>"
+                f"<td><span class='badge {status_class}'>{status_text}</span></td>"
+                f"<td class='url-cell'><a href='{url}' target='_blank' rel='noreferrer'>{url}</a></td>"
+                f"<td><code>{latency}</code></td>"
+                f"<td>{toggle_btn}</td>"
+                f"</tr>"
+                f"{f'<tr class=\"drawer-row\"><td colspan=\"4\">{details_block}</td></tr>' if details_block else ''}"
+            )
+
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Link Audit Dashboard - {base_url}</title>
+<style>
+  :root {{
+    --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #f8fafc;
+    --text-muted: #94a3b8; --primary: #38bdf8; --success: #22c55e; --danger: #ef4444;
+  }}
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 32px 20px; }}
+  .container {{ max-width: 1200px; margin: 0 auto; }}
+  header {{ margin-bottom: 28px; }}
+  header h1 {{ font-size: 26px; font-weight: 700; color: #fff; }}
+  header p {{ color: var(--text-muted); font-size: 14px; margin-top: 4px; }}
+  .metrics-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 28px; }}
+  .card {{ background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }}
+  .card-label {{ font-size: 12px; text-transform: uppercase; color: var(--text-muted); font-weight: 600; letter-spacing: 0.5px; }}
+  .card-val {{ font-size: 28px; font-weight: 700; margin-top: 8px; }}
+  .controls {{ display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; margin-bottom: 20px; }}
+  .search-input {{ background: var(--surface); border: 1px solid var(--border); color: #fff; padding: 10px 14px; border-radius: 8px; width: 320px; outline: none; }}
+  .filters {{ display: flex; gap: 8px; }}
+  .btn-filter {{ background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; }}
+  .btn-filter.active {{ background: var(--primary); color: #000; border-color: var(--primary); }}
+  table {{ width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }}
+  th, td {{ padding: 12px 16px; text-align: left; font-size: 14px; border-bottom: 1px solid var(--border); }}
+  th {{ background: #131d31; color: var(--text-muted); font-weight: 600; font-size: 12px; text-transform: uppercase; }}
+  .url-cell a {{ color: var(--primary); text-decoration: none; word-break: break-all; }}
+  .url-cell a:hover {{ text-decoration: underline; }}
+  .badge {{ display: inline-block; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; font-family: monospace; }}
+  .badge-ok {{ background: rgba(34, 197, 94, 0.15); color: var(--success); }}
+  .badge-fail {{ background: rgba(239, 68, 68, 0.15); color: var(--danger); }}
+  .btn-toggle {{ background: transparent; border: 1px solid var(--border); color: var(--text-muted); padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; }}
+  .btn-toggle:hover {{ color: var(--text); border-color: var(--text-muted); }}
+  .drawer {{ display: none; background: #0b1120; border-radius: 8px; padding: 14px; margin: 6px 0; border-left: 3px solid var(--danger); }}
+  .drawer.open {{ display: block; }}
+  .drawer p {{ font-size: 13px; margin-bottom: 6px; }}
+  .ref-list {{ margin: 6px 0 10px 20px; font-size: 12px; color: var(--text-muted); }}
+  .ref-list a {{ color: var(--text-muted); word-break: break-all; }}
+  .ref-list a:hover {{ color: var(--primary); }}
+  .ai-box {{ margin-top: 10px; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.2); padding: 10px; border-radius: 6px; font-size: 13px; }}
+  .drawer-row td {{ padding: 0 16px; border-bottom: 1px solid var(--border); }}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Link Health & Diagnostic Dashboard</h1>
+    <p>Target: <strong>{base_url}</strong></p>
+  </header>
+  <div class="metrics-grid">
+    <div class="card"><div class="card-label">Pages Crawled</div><div class="card-val">{pages_crawled}</div></div>
+    <div class="card"><div class="card-label">Unique Links</div><div class="card-val">{total}</div></div>
+    <div class="card"><div class="card-label">Healthy</div><div class="card-val" style="color:var(--success)">{alive}</div></div>
+    <div class="card"><div class="card-label">Broken</div><div class="card-val" style="color:var(--danger)">{broken}</div></div>
+    <div class="card"><div class="card-label">Avg Latency</div><div class="card-val">{avg_latency} ms</div></div>
+  </div>
+  <div class="controls">
+    <input type="text" id="searchInput" class="search-input" placeholder="Filter by URL..." onkeyup="filterTable()">
+    <div class="filters">
+      <button class="btn-filter active" onclick="setFilter('all', this)">All</button>
+      <button class="btn-filter" onclick="setFilter('broken', this)">Broken Only</button>
+      <button class="btn-filter" onclick="setFilter('archived', this)">Archived</button>
+    </div>
+  </div>
+  <table>
+    <thead><tr><th style="width:100px;">Status</th><th>Endpoint URL</th><th style="width:120px;">Latency</th><th style="width:100px;">Actions</th></tr></thead>
+    <tbody id="tableBody">{''.join(rows_html)}</tbody>
+  </table>
+</div>
+<script>
+  let activeFilter = 'all';
+  function setFilter(type, btn) {{
+    activeFilter = type;
+    document.querySelectorAll('.btn-filter').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    filterTable();
+  }}
+  function filterTable() {{
+    const query = document.getElementById('searchInput').value.toLowerCase();
+    const rows = document.querySelectorAll('.data-row');
+    rows.forEach(row => {{
+      const text = row.querySelector('.url-cell').textContent.toLowerCase();
+      const statusTag = row.getAttribute('data-status');
+      const matchesSearch = text.includes(query);
+      const matchesFilter = (activeFilter === 'all') || (statusTag.includes(activeFilter));
+      const nextDrawerRow = row.nextElementSibling;
+      const isVisible = matchesSearch && matchesFilter;
+      row.style.display = isVisible ? '' : 'none';
+      if (nextDrawerRow && nextDrawerRow.classList.contains('drawer-row')) {{
+        if (!isVisible) nextDrawerRow.style.display = 'none';
+      }}
+    }});
+  }}
+  function toggleDrawer(id) {{
+    const el = document.getElementById(id);
+    if (el) {{
+      el.classList.toggle('open');
+      const parentRow = el.closest('.drawer-row');
+      if (parentRow) {{
+        parentRow.style.display = el.classList.contains('open') ? '' : 'none';
+      }}
+    }}
+  }}
+</script>
+</body>
+</html>"""
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(html_content)
