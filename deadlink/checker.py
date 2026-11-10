@@ -43,7 +43,6 @@ class WaybackRecovery:
                 closest = data.get("archived_snapshots", {}).get("closest")
                 if closest and closest.get("available"):
                     raw_time = closest.get("timestamp", "")
-                    # Format timestamp YYYYMMDDhhmmss -> YYYY-MM-DD
                     formatted_date = (
                         f"{raw_time[:4]}-{raw_time[4:6]}-{raw_time[6:8]}"
                         if len(raw_time) >= 8
@@ -206,3 +205,20 @@ class LinkScanner:
             "error": last_error,
             "raw_body": raw_body,
         }
+
+
+class HTMLReporter:
+    """Generates a standalone, interactive HTML report with filtering and diagnostic drawers."""
+
+    @staticmethod
+    def generate(results: List[Dict[str, Any]], base_url: str, output_path: str) -> None:
+        total = len(results)
+        broken = sum(1 for r in results if not r["ok"])
+        alive = total - broken
+        recovered = sum(1 for r in results if r.get("wayback_snapshot"))
+        avg_latency = (
+            round(sum(r.get("latency_ms", 0.0) for r in results) / total, 1) if total else 0.0
+        )
+
+        rows_html = []
+        for idx, item in enumerate

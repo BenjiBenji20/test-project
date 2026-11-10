@@ -3,13 +3,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import sys
 from urllib.parse import urlparse
-from checker import AIAuditor, LinkScanner, WaybackRecovery
+from checker import AIAuditor, HTMLReporter, LinkScanner, WaybackRecovery
 
 
 def main():
     parser = argparse.ArgumentParser(
         prog="deadlink",
-        description="CLI tool to detect dead links, find archive snapshots, and run AI root-cause audits.",
+        description="CLI tool to detect dead links, find archive snapshots, and generate visual HTML audit dashboards.",
     )
     parser.add_argument("url", type=str, help="Target URL to inspect (e.g., example.com)")
     parser.add_argument(
@@ -80,6 +80,12 @@ def main():
         type=str,
         metavar="FILE",
         help="Export full results and diagnostics to a JSON file",
+    )
+    parser.add_argument(
+        "--html",
+        type=str,
+        metavar="FILE",
+        help="Generate an interactive, standalone HTML audit report",
     )
 
     args = parser.parse_args()
@@ -163,6 +169,12 @@ def main():
     alive_count = len(results) - broken_count
     print(f"Done: {alive_count} accessible, {broken_count} broken.")
 
+    # Generate interactive HTML dashboard if requested
+    if args.html:
+        HTMLReporter.generate(results, scanner.base_url, args.html)
+        print(f"Generated visual HTML report: {args.html}")
+
+    # Export machine-readable JSON if requested
     if args.output:
         for item in results:
             item.pop("raw_body", None)
