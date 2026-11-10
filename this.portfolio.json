@@ -6,6 +6,16 @@
     "captureScreenshots": false,
     "generateArchitectureDiagrams": true
   },
+  "generateArticle": true,
+  "commands": {
+    "description": "Listed all the commit keywords before the actual commit message. E.g: '(feat): message' this means a new feature.",
+    "commitKeys":{
+      "feat": "New feature(s). High chance to create an article BUT still analyze the code changes if worthy to create an article or just work log.",
+      "ref": "Refactor(s). High change to create a work log BUT still analyze the code changes if worthy to create a work log.",
+      "fix": "Fix. Low chance or high chance to ignore BUT still analyze the code changes if worthy to create a work log.",
+      "others **": "Assumpt the commit key. BUT still analyze the code changes if worthy for anything."
+    }
+  },
   "primaryBranch": "main",
   "projectTitle": "Dead Link Checkerr",
   "projectSlug": "cli-dead-link-checker",
@@ -17,6 +27,5 @@
   ],
   "projectOverview": "A high-performance CLI utility written in Python using Requests and HTMLParser to crawl websites, harvest anchor tags, and isolate unreachable HTTP endpoints.",
   "targetAudience": "Pinoy recruiters",
-
   "writingTone": "deep-dive engineering with concise code snippets but make it sounds like you are talking to a beginner."
 }
