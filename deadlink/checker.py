@@ -5,6 +5,7 @@ import re
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urldefrag, urljoin, urlparse
+import xml.etree.ElementTree as ET
 import requests
 
 
@@ -155,8 +156,48 @@ class LinkScanner:
         )
         self.timeout = timeout
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": "LinkScannerCLI/3.0"})
-        self.base_domain = urlparse(self.base_url).netloc
+        self.session.headers.update({"User-Agent": "LinkScannerCLI/3.1"})
+        parsed = urlparse(self.base_url)
+        self.base_scheme = parsed.scheme
+        self.base_domain = parsed.netloc
+
+    def fetch_sitemap_urls(
+        self, sitemap_url: Optional[str] = None, _depth: int = 0
+    ) -> Set[str]:
+        """Fetches and parses URLs from an XML sitemap or sitemap index."""
+        if _depth > 1:
+            return set()
+
+        target = (
+            sitemap_url
+            if sitemap_url and sitemap_url != "auto"
+            else f"{self.base_scheme}://{self.base_domain}/sitemap.xml"
+        )
+        if not target.startswith(("http://", "https://")):
+            target = f"https://{target}"
+
+        discovered: Set[str] = set()
+        try:
+            res = self.session.get(target, timeout=self.timeout)
+            res.raise_for_status()
+            root = ET.fromstring(res.content)
+        except (requests.RequestException, ET.ParseError):
+            return discovered
+
+        root_tag = root.tag.lower()
+        if root_tag.endswith("sitemapindex"):
+            for elem in root.iter():
+                if elem.tag.lower().endswith("loc") and elem.text:
+                    discovered.update(
+                        self.fetch_sitemap_urls(elem.text.strip(), _depth=_depth + 1)
+                    )
+        else:
+            for elem in root.iter():
+                if elem.tag.lower().endswith("loc") and elem.text:
+                    clean_url, _ = urldefrag(elem.text.strip())
+                    discovered.add(clean_url)
+
+        return discovered
 
     def extract_links_from_url(self, page_url: str) -> Set[str]:
         """Fetches a single page and extracts normalized absolute links."""
@@ -179,12 +220,24 @@ class LinkScanner:
         return resolved_links
 
     def crawl(
-        self, max_depth: int = 1, max_pages: int = 40
+        self,
+        max_depth: int = 1,
+        max_pages: int = 40,
+        seed_urls: Optional[Set[str]] = None,
+        sitemap_source: Optional[str] = None,
     ) -> Tuple[Dict[str, List[str]], int]:
         """Performs a BFS crawl to discover URLs and map each link to its referring page(s)."""
         queue = deque([(self.base_url, 1)])
         visited_pages: Set[str] = set()
         link_referrers: Dict[str, Set[str]] = {}
+
+        if seed_urls:
+            for url in sorted(seed_urls):
+                link_referrers.setdefault(url, set()).add(
+                    sitemap_source or "sitemap.xml"
+                )
+                if urlparse(url).netloc == self.base_domain and url != self.base_url:
+                    queue.append((url, 1))
 
         while queue and len(visited_pages) < max_pages:
             current_url, depth = queue.popleft()
@@ -202,12 +255,10 @@ class LinkScanner:
                     link_referrers[link] = set()
                 link_referrers[link].add(current_url)
 
-                # Enqueue internal links for deeper exploration if within max_depth limit
                 if depth < max_depth and urlparse(link).netloc == self.base_domain:
                     if link not in visited_pages:
                         queue.append((link, depth + 1))
 
-        # Convert set values to sorted lists for deterministic serialization
         normalized_referrers = {
             link: sorted(refs) for link, refs in link_referrers.items()
         }
@@ -268,7 +319,6 @@ class HTMLReporter:
         total = len(results)
         broken = sum(1 for r in results if not r["ok"])
         alive = total - broken
-        recovered = sum(1 for r in results if r.get("wayback_snapshot"))
         avg_latency = (
             round(sum(r.get("latency_ms", 0.0) for r in results) / total, 1) if total else 0.0
         )
@@ -287,7 +337,7 @@ class HTMLReporter:
                     for r in item["referrers"]
                 )
                 details_html.append(
-                    f"<p><strong>Referenced on ({len(item['referrers'])} page/s):</strong></p>"
+                    f"<p><strong>Referenced on ({len(item['referrers'])} source/s):</strong></p>"
                     f"<ul class='ref-list'>{refs_li}</ul>"
                 )
             if item.get("error"):
