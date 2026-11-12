@@ -9,9 +9,17 @@ from checker import AIAuditor, HTMLReporter, LinkScanner, WaybackRecovery
 def main():
     parser = argparse.ArgumentParser(
         prog="deadlink",
-        description="CLI tool to detect dead links, trace referring pages, and run AI root-cause audits.",
+        description="CLI tool to detect dead links, parse XML sitemaps, trace referring pages, and run AI audits.",
     )
     parser.add_argument("url", type=str, help="Target URL to inspect (e.g., example.com)")
+    parser.add_argument(
+        "-s",
+        "--sitemap",
+        nargs="?",
+        const="auto",
+        default=None,
+        help="Seed crawl from /sitemap.xml or a custom sitemap URL",
+    )
     parser.add_argument(
         "-d",
         "--depth",
@@ -104,11 +112,27 @@ def main():
     args = parser.parse_args()
 
     scanner = LinkScanner(args.url, timeout=args.timeout)
+
+    sitemap_urls = set()
+    sitemap_label = None
+    if args.sitemap:
+        sitemap_label = (
+            f"{scanner.base_scheme}://{scanner.base_domain}/sitemap.xml"
+            if args.sitemap == "auto"
+            else args.sitemap
+        )
+        print(f"Parsing sitemap: {sitemap_label}...")
+        sitemap_urls = scanner.fetch_sitemap_urls(args.sitemap)
+        print(f"Discovered {len(sitemap_urls)} URL(s) from sitemap.")
+
     print(f"Crawling {scanner.base_url} (depth={args.depth}, max_pages={args.max_pages})...")
 
     try:
         link_referrers, pages_crawled = scanner.crawl(
-            max_depth=args.depth, max_pages=args.max_pages
+            max_depth=args.depth,
+            max_pages=args.max_pages,
+            seed_urls=sitemap_urls,
+            sitemap_source=sitemap_label,
         )
     except Exception as exc:
         print(f"Error during crawl: {exc}", file=sys.stderr)
